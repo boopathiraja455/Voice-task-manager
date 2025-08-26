@@ -1,0 +1,187 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --font-family-orbitron: 'Orbitron', monospace;
+  --font-family-inter: 'Inter', sans-serif;
+  
+  /* Neon Dark Theme Colors */
+  --color-background: #0a0a0f;
+  --color-foreground: #e0e7ff;
+  --color-card: #111827;
+  --color-card-foreground: #f3f4f6;
+  --color-popover: #1f2937;
+  --color-popover-foreground: #f9fafb;
+  --color-primary: #06b6d4;
+  --color-primary-foreground: #0f172a;
+  --color-secondary: #1e293b;
+  --color-secondary-foreground: #f1f5f9;
+  --color-muted: #374151;
+  --color-muted-foreground: #9ca3af;
+  --color-accent: #7c3aed;
+  --color-accent-foreground: #f8fafc;
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #fef2f2;
+  --color-border: #374151;
+  --color-input: #1f2937;
+  --color-ring: #06b6d4;
+  
+  /* Neon Effects */
+  --color-neon-cyan: #00ffff;
+  --color-neon-purple: #a855f7;
+  --color-neon-pink: #ec4899;
+  --color-neon-green: #10b981;
+  --color-neon-yellow: #fbbf24;
+  
+  /* Radii */
+  --radius: 0.75rem;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-family-inter);
+    font-feature-settings: "rlig" 1, "calt" 1;
+    background-image: 
+      radial-gradient(circle at 20% 50%, rgba(0, 255, 255, 0.1) 0%, transparent 50%),
+      radial-gradient(circle at 80% 20%, rgba(168, 85, 247, 0.1) 0%, transparent 50%),
+      radial-gradient(circle at 40% 80%, rgba(16, 185, 129, 0.1) 0%, transparent 50%);
+    background-attachment: fixed;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-family-orbitron);
+    font-weight: 600;
+  }
+
+  /* Neon glow effects */
+  .neon-glow {
+    box-shadow: 
+      0 0 5px var(--color-neon-cyan),
+      0 0 10px var(--color-neon-cyan),
+      0 0 15px var(--color-neon-cyan),
+      0 0 20px var(--color-neon-cyan);
+  }
+
+  .neon-text {
+    text-shadow: 
+      0 0 5px var(--color-neon-cyan),
+      0 0 10px var(--color-neon-cyan),
+      0 0 15px var(--color-neon-cyan);
+  }
+
+  .neon-border {
+    border: 1px solid var(--color-neon-cyan);
+    box-shadow: 
+      inset 0 0 10px rgba(0, 255, 255, 0.2),
+      0 0 10px rgba(0, 255, 255, 0.2);
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--color-secondary);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-primary);
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-neon-cyan);
+    box-shadow: 0 0 5px var(--color-neon-cyan);
+  }
+
+  /* Input focus effects */
+  input:focus, textarea:focus, select:focus {
+    box-shadow: 
+      0 0 0 2px var(--color-ring),
+      0 0 10px rgba(6, 182, 212, 0.3);
+  }
+
+  /* Button hover effects */
+  button:hover {
+    transform: translateY(-1px);
+    transition: all 0.2s ease;
+  }
+
+  /* Card glow effects */
+  .card-neon {
+    background: rgba(17, 24, 39, 0.8);
+    border: 1px solid rgba(6, 182, 212, 0.3);
+    backdrop-filter: blur(10px);
+  }
+
+  .card-neon:hover {
+    border-color: var(--color-neon-cyan);
+    box-shadow: 
+      0 0 20px rgba(0, 255, 255, 0.1),
+      inset 0 0 20px rgba(0, 255, 255, 0.05);
+  }
+
+  /* Animation keyframes */
+  @keyframes neon-pulse {
+    0%, 100% {
+      text-shadow: 
+        0 0 5px var(--color-neon-cyan),
+        0 0 10px var(--color-neon-cyan),
+        0 0 15px var(--color-neon-cyan);
+    }
+    50% {
+      text-shadow: 
+        0 0 2px var(--color-neon-cyan),
+        0 0 5px var(--color-neon-cyan),
+        0 0 8px var(--color-neon-cyan);
+    }
+  }
+
+  .animate-neon-pulse {
+    animation: neon-pulse 2s ease-in-out infinite;
+  }
+
+  /* Priority color overrides for neon theme */
+  .priority-high {
+    background: rgba(239, 68, 68, 0.2);
+    color: #fca5a5;
+    border: 1px solid #ef4444;
+  }
+
+  .priority-medium {
+    background: rgba(251, 191, 36, 0.2);
+    color: #fcd34d;
+    border: 1px solid #f59e0b;
+  }
+
+  .priority-low {
+    background: rgba(16, 185, 129, 0.2);
+    color: #6ee7b7;
+    border: 1px solid #059669;
+  }
+
+  /* Overdue task styling */
+  .task-overdue {
+    border-left: 4px solid var(--color-neon-pink);
+    background: rgba(236, 72, 153, 0.05);
+  }
+
+  .task-overdue:hover {
+    box-shadow: 0 0 15px rgba(236, 72, 153, 0.2);
+  }
+}
+
+/* Hide Next.js error overlay portal */
+nextjs-portal {
+  display: none !important;
+}
