@@ -198,18 +198,12 @@ export default function Dashboard() {
     return () => window.removeEventListener('refreshTasks', handleRefreshTasks)
   }, [fetchTasks, logEvent])
 
-  // Initialize data and speech
+  // Initialize data and speech - REMOVED periodic refresh to stop GUI refreshing
   useEffect(() => {
     fetchTasks()
     
-    // Set up periodic refresh (reduced frequency to prevent overload)
-    const interval = setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        fetchTasks()
-      }
-    }, 60000) // 60 seconds - less aggressive than before
-    
-    return () => clearInterval(interval)
+    // Removed the setInterval that was causing periodic refreshing every minute
+    // Tasks will only refresh when explicitly requested via events or user actions
   }, [fetchTasks])
 
   // Current time tracking for precise scheduling
@@ -225,7 +219,7 @@ export default function Dashboard() {
     }
   }, [])
 
-  // Automated task generation at 1-minute intervals
+  // Automated task generation at 1-minute intervals - Made less intrusive
   useEffect(() => {
     if (!autoTaskGeneration) return
 
@@ -269,12 +263,15 @@ export default function Dashboard() {
         }
 
         const createdTask = await response.json()
+        // Update tasks silently without triggering UI refresh
         setTasks(prev => [...prev, createdTask])
         setLastGeneratedTask(now)
         setGenerationCount(prev => prev + 1)
 
-        toast.success('Automated Task Created', {
-          description: `"${newTask.description}" due in ${Math.ceil((dueDate.getTime() - now.getTime()) / 60000)} minutes`
+        // Less intrusive notification - only show brief toast
+        toast.success('New Task Auto-Generated', {
+          description: `Due in ${Math.ceil((dueDate.getTime() - now.getTime()) / 60000)} min`,
+          duration: 2000 // Shorter duration
         })
 
         logEvent(`Successfully created automated task with ID: ${createdTask.id}`)
@@ -283,12 +280,13 @@ export default function Dashboard() {
       }
     }
 
-    // Generate first task immediately, then every minute
-    generateSampleTask()
+    // Generate first task after a small delay, then every minute
+    const initialTimeout = setTimeout(generateSampleTask, 5000) // 5 second delay before first generation
     
     taskGenerationInterval.current = setInterval(generateSampleTask, 60000) // Every 60 seconds
 
     return () => {
+      clearTimeout(initialTimeout)
       if (taskGenerationInterval.current) {
         clearInterval(taskGenerationInterval.current)
         logEvent('Stopped automated task generation system')
