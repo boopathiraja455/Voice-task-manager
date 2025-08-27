@@ -1,37 +1,36 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/db';
-import { tasks } from '@/db/schema';
+import { NextRequest, NextResponse } from 'next/server'
+import { TaskManager } from '@/lib/json-storage'
+
+const taskManager = new TaskManager()
 
 export async function GET(request: NextRequest) {
   try {
-    // Fetch all tasks from database without pagination for export
-    const allTasks = await db.select().from(tasks);
+    const searchParams = request.nextUrl.searchParams
+    const category = searchParams.get('category')
+    const priority = searchParams.get('priority') as 'low' | 'medium' | 'high' | null
+    const completed = searchParams.get('completed')
 
-    // Generate export timestamp
-    const exportTimestamp = new Date().toISOString();
+    // Build filters object
+    const filters: any = {}
+    if (category) filters.category = category
+    if (priority) filters.priority = priority
+    if (completed !== null) filters.completed = completed === 'true'
 
-    // Create export data with metadata
-    const exportData = {
-      exportedAt: exportTimestamp,
-      totalTasks: allTasks.length,
-      tasks: allTasks
-    };
+    const tasks = await taskManager.getTasks(filters)
+    
+    const jsonString = JSON.stringify(tasks, null, 2)
+    const buffer = Buffer.from(jsonString, 'utf-8')
 
-    // Create response with proper headers for JSON download
-    const response = NextResponse.json(exportData, { status: 200 });
-
-    // Set headers for file download
-    response.headers.set('Content-Type', 'application/json');
-    response.headers.set('Content-Disposition', 'attachment; filename=tasks-export.json');
-    response.headers.set('Cache-Control', 'no-cache');
-
-    return response;
-
+    return new NextResponse(buffer, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Disposition': `attachment; filename="tasks_export_${new Date().toISOString().split('T')[0]}.json"`,
+        'Content-Length': buffer.length.toString()
+      }
+    })
   } catch (error) {
-    console.error('GET tasks export error:', error);
-    return NextResponse.json({ 
-      error: 'Internal server error: Failed to export tasks',
-      code: 'EXPORT_FAILED'
-    }, { status: 500 });
+    console.error('Error exporting tasks:', error)
+    return NextResponse.json({ error: 'Failed to export tasks' }, { status: 500 })
   }
 }

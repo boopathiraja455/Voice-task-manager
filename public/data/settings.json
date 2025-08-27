@@ -1,0 +1,19 @@
+{
+  "voice": {
+    "selectedVoice": "Microsoft Prabhat - English (India)",
+    "rate": 1.0,
+    "pitch": 1.0,
+    "volume": 0.8
+  },
+  "announcements": {
+    "enabled": true,
+    "morningTime": "09:00",
+    "eveningTime": "18:00",
+    "muted": false
+  },
+  "system": {
+    "masterVolume": 0.7,
+    "taskDataPath": "/public/data/tasks.json",
+    "backupEnabled": true
+  }
+}

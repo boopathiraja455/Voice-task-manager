@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Clock3, Calendar, ListTodo, CalendarX2, CalendarCheck2, ClockAlert, CalendarDays, Clock1, CalendarFold, Timer, CalendarClock, ListFilter, ChartGantt, CalendarSearch, CalendarPlus, Volume2, Clock4 } from 'lucide-react'
+import { Clock3, Calendar, ListTodo, CalendarX2, CalendarCheck2, ClockAlert, CalendarDays, Clock1, CalendarFold, Timer, CalendarClock, ListFilter, ChartGantt, CalendarSearch, CalendarPlus, Volume2, Clock4, Repeat, ShoppingCart, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -56,7 +56,65 @@ const FREQUENCIES = [
   'Every 2 Years'
 ]
 
-const CATEGORIES = ['Work', 'Personal', 'Health', 'Finance', 'Learning', 'Other']
+const CATEGORIES = ['reminders', 'todo', 'shopping', 'work', 'personal', 'health', 'finance', 'learning', 'other']
+
+// Category configuration for display order and styling
+const CATEGORY_CONFIG = {
+  reminders: {
+    label: 'Repetitive Reminders',
+    icon: Repeat,
+    color: 'bg-blue-500/10 border-blue-500/20',
+    order: 1
+  },
+  todo: {
+    label: 'Todo Tasks',
+    icon: ListTodo,
+    color: 'bg-green-500/10 border-green-500/20',
+    order: 2
+  },
+  shopping: {
+    label: 'Shopping & Dues',
+    icon: ShoppingCart,
+    color: 'bg-purple-500/10 border-purple-500/20',
+    order: 3
+  },
+  work: {
+    label: 'Work Tasks',
+    icon: CalendarClock,
+    color: 'bg-orange-500/10 border-orange-500/20',
+    order: 4
+  },
+  personal: {
+    label: 'Personal Tasks',
+    icon: Calendar,
+    color: 'bg-pink-500/10 border-pink-500/20',
+    order: 5
+  },
+  health: {
+    label: 'Health & Wellness',
+    icon: AlertCircle,
+    color: 'bg-red-500/10 border-red-500/20',
+    order: 6
+  },
+  finance: {
+    label: 'Financial Tasks',
+    icon: CalendarDays,
+    color: 'bg-yellow-500/10 border-yellow-500/20',
+    order: 7
+  },
+  learning: {
+    label: 'Learning & Development',
+    icon: CalendarFold,
+    color: 'bg-indigo-500/10 border-indigo-500/20',
+    order: 8
+  },
+  other: {
+    label: 'Other Tasks',
+    icon: CalendarX2,
+    color: 'bg-gray-500/10 border-gray-500/20',
+    order: 9
+  }
+}
 
 export default function Dashboard() {
   // Core state
@@ -100,7 +158,7 @@ export default function Dashboard() {
   const [newTaskForm, setNewTaskForm] = useState({
     description: '',
     dueDate: '',
-    category: 'Personal',
+    category: 'todo',
     priority: 'medium' as Task['priority'],
     frequency: ''
   })
@@ -128,23 +186,24 @@ export default function Dashboard() {
     try {
       const response = await fetch('/api/settings')
       if (response.ok) {
-        const settings = await response.json()
+        const result = await response.json()
+        const settings = result.data
         
-        if (settings.voice) {
+        if (settings?.voice) {
           setSelectedVoice(settings.voice)
           setSpeechVolume(settings.voice.volume || 0.8)
           setSpeechRate(settings.voice.rate || 0.9)
           setSpeechPitch(settings.voice.pitch || 1.0)
         }
         
-        if (settings.announcements) {
+        if (settings?.announcements) {
           setAnnouncementsEnabled(settings.announcements.enabled ?? true)
           setMorningAnnouncementEnabled(settings.announcements.morning ?? true)  
           setEveningAnnouncementEnabled(settings.announcements.evening ?? true)
         }
         
-        if (settings.system) {
-          setSystemVolume(settings.system.volume || 0.8)
+        if (settings?.system) {
+          setSystemVolume(settings.system.masterVolume || 0.8)
         }
         
         logEvent('Settings loaded from JSON file')
@@ -159,20 +218,22 @@ export default function Dashboard() {
     try {
       const settings = {
         voice: {
-          ...selectedVoice,
-          volume: speechVolume,
+          selectedVoice: selectedVoice?.name || 'Microsoft Prabhat - English (India)',
           rate: speechRate,
-          pitch: speechPitch
+          pitch: speechPitch,
+          volume: speechVolume
         },
         announcements: {
           enabled: announcementsEnabled,
-          morning: morningAnnouncementEnabled,
-          evening: eveningAnnouncementEnabled
+          morningTime: '09:00',
+          eveningTime: '18:00',
+          muted: !announcementsEnabled
         },
         system: {
-          volume: systemVolume
-        },
-        updatedAt: new Date().toISOString()
+          masterVolume: systemVolume,
+          taskDataPath: '/public/data/tasks.json',
+          backupEnabled: true
+        }
       }
 
       const response = await fetch('/api/settings', {
@@ -377,7 +438,7 @@ export default function Dashboard() {
         if (morningTime < eveningTime) {
           setNextAnnouncementTime(morningTime)
         } else {
-          setNextAnnouncementTime(eveningTime)
+          setNextAnnouncementEnabled(eveningTime)
         }
       } else if (morningAnnouncementEnabled) {
         setNextAnnouncementTime(morningTime)
@@ -413,7 +474,7 @@ export default function Dashboard() {
     const cleanup = scheduleAnnouncements()
     
     return cleanup
-  }, [announcementsEnabled, morningAnnouncementEnabled, eveningAnnouncementEnabled, tasks, logEvent])
+  }, [announcementsEnabled, morningAnnouncementEnabled, eveningAnnouncementEnabled, tasks, logEvent, speakMorningAnnouncement, speakEveningAnnouncement])
 
   // Speech functions with fallback mechanisms and system volume control
   const speak = useCallback((text: string, repeat = false) => {
@@ -500,6 +561,7 @@ export default function Dashboard() {
     }
   }, [systemVolume])
 
+  // Enhanced separate announcements for each category
   const speakMorningAnnouncement = useCallback(() => {
     const today = new Date().toDateString()
     const todayTasks = tasks.filter(task => 
@@ -511,11 +573,44 @@ export default function Dashboard() {
       return
     }
     
-    const taskDescriptions = todayTasks.map(task => task.description).join(', ')
-    const announcement = `Good morning! Here are your ${todayTasks.length} tasks for today: ${taskDescriptions}`
+    // Group tasks by category for separate announcements
+    const tasksByCategory = todayTasks.reduce((acc, task) => {
+      const category = task.category.toLowerCase()
+      if (!acc[category]) acc[category] = []
+      acc[category].push(task)
+      return acc
+    }, {} as Record<string, Task[]>)
     
-    speak(announcement, true)
-    logEvent(`Morning announcement delivered for ${todayTasks.length} tasks`)
+    // Announce each category separately in order
+    const announceCategory = (category: string, index: number) => {
+      setTimeout(() => {
+        const categoryTasks = tasksByCategory[category]
+        if (categoryTasks && categoryTasks.length > 0) {
+          const categoryConfig = CATEGORY_CONFIG[category as keyof typeof CATEGORY_CONFIG]
+          const categoryLabel = categoryConfig?.label || category
+          const taskDescriptions = categoryTasks.map(task => task.description).join(', ')
+          
+          const announcement = `${categoryLabel}: ${taskDescriptions}`
+          speak(announcement)
+          logEvent(`Morning announcement for ${category}: ${categoryTasks.length} tasks`)
+        }
+      }, index * 3000) // 3 second delay between categories
+    }
+    
+    speak('Good morning! Here are your tasks for today, organized by category:')
+    
+    // Announce categories in priority order
+    const orderedCategories = Object.keys(tasksByCategory).sort((a, b) => {
+      const configA = CATEGORY_CONFIG[a as keyof typeof CATEGORY_CONFIG]
+      const configB = CATEGORY_CONFIG[b as keyof typeof CATEGORY_CONFIG]
+      return (configA?.order || 999) - (configB?.order || 999)
+    })
+    
+    orderedCategories.forEach((category, index) => {
+      announceCategory(category, index + 1) // +1 to account for initial greeting
+    })
+    
+    logEvent(`Morning announcement delivered for ${todayTasks.length} tasks across ${orderedCategories.length} categories`)
   }, [tasks, speak, logEvent])
 
   const speakEveningAnnouncement = useCallback(() => {
@@ -531,23 +626,78 @@ export default function Dashboard() {
       new Date(task.dueDate) < today && !task.completed
     )
     
-    let announcement = 'Good evening! '
+    speak('Good evening!')
     
+    // Announce tomorrow's tasks by category
     if (tomorrowTasks.length > 0) {
-      const tomorrowDescriptions = tomorrowTasks.map(t => t.description).join(', ')
-      announcement += `Tomorrow's ${tomorrowTasks.length} tasks: ${tomorrowDescriptions}. `
+      const tomorrowByCategory = tomorrowTasks.reduce((acc, task) => {
+        const category = task.category.toLowerCase()
+        if (!acc[category]) acc[category] = []
+        acc[category].push(task)
+        return acc
+      }, {} as Record<string, Task[]>)
+      
+      setTimeout(() => {
+        speak(`Tomorrow's tasks by category:`)
+        
+        const orderedCategories = Object.keys(tomorrowByCategory).sort((a, b) => {
+          const configA = CATEGORY_CONFIG[a as keyof typeof CATEGORY_CONFIG]
+          const configB = CATEGORY_CONFIG[b as keyof typeof CATEGORY_CONFIG]
+          return (configA?.order || 999) - (configB?.order || 999)
+        })
+        
+        orderedCategories.forEach((category, index) => {
+          setTimeout(() => {
+            const categoryTasks = tomorrowByCategory[category]
+            const categoryConfig = CATEGORY_CONFIG[category as keyof typeof CATEGORY_CONFIG]
+            const categoryLabel = categoryConfig?.label || category
+            const taskDescriptions = categoryTasks.map(t => t.description).join(', ')
+            
+            speak(`${categoryLabel}: ${taskDescriptions}`)
+          }, (index + 1) * 2500)
+        })
+      }, 1000)
     }
     
+    // Announce overdue tasks by category
     if (overdueTasks.length > 0) {
-      const overdueDescriptions = overdueTasks.map(t => t.description).join(', ')
-      announcement += `You have ${overdueTasks.length} overdue tasks: ${overdueDescriptions}.`
+      const overdueByCategory = overdueTasks.reduce((acc, task) => {
+        const category = task.category.toLowerCase()
+        if (!acc[category]) acc[category] = []
+        acc[category].push(task)
+        return acc
+      }, {} as Record<string, Task[]>)
+      
+      const delay = tomorrowTasks.length > 0 ? (Object.keys(tomorrowByCategory).length + 2) * 2500 : 1500
+      
+      setTimeout(() => {
+        speak(`Overdue tasks by category:`)
+        
+        const orderedCategories = Object.keys(overdueByCategory).sort((a, b) => {
+          const configA = CATEGORY_CONFIG[a as keyof typeof CATEGORY_CONFIG]
+          const configB = CATEGORY_CONFIG[b as keyof typeof CATEGORY_CONFIG]
+          return (configA?.order || 999) - (configB?.order || 999)
+        })
+        
+        orderedCategories.forEach((category, index) => {
+          setTimeout(() => {
+            const categoryTasks = overdueByCategory[category]
+            const categoryConfig = CATEGORY_CONFIG[category as keyof typeof CATEGORY_CONFIG]
+            const categoryLabel = categoryConfig?.label || category
+            const taskDescriptions = categoryTasks.map(t => t.description).join(', ')
+            
+            speak(`${categoryLabel}: ${taskDescriptions}`)
+          }, (index + 1) * 2500)
+        })
+      }, delay)
     }
     
     if (tomorrowTasks.length === 0 && overdueTasks.length === 0) {
-      announcement += 'No tasks scheduled for tomorrow and no overdue tasks. Great job!'
+      setTimeout(() => {
+        speak('No tasks scheduled for tomorrow and no overdue tasks. Great job!')
+      }, 1000)
     }
     
-    speak(announcement)
     logEvent(`Evening announcement delivered - Tomorrow: ${tomorrowTasks.length}, Overdue: ${overdueTasks.length}`)
   }, [tasks, speak, logEvent])
 
@@ -633,7 +783,7 @@ export default function Dashboard() {
       setNewTaskForm({
         description: '',
         dueDate: '',
-        category: 'Personal',
+        category: 'todo',
         priority: 'medium',
         frequency: ''
       })
@@ -686,8 +836,8 @@ export default function Dashboard() {
     }
   }, [selectedTask, rescheduleForm])
 
-  // Filtering and sorting
-  const filteredAndSortedTasks = useMemo(() => {
+  // Enhanced filtering and sorting with category segregation
+  const tasksByCategory = useMemo(() => {
     const now = new Date()
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
     
@@ -720,38 +870,46 @@ export default function Dashboard() {
       }
     })
 
-    // Sort
-    filtered.sort((a, b) => {
-      const aDate = new Date(a.dueDate)
-      const bDate = new Date(b.dueDate)
-      const now = new Date()
-      
-      switch (sortBy) {
-        case 'priority': {
-          const priorityOrder = { high: 3, medium: 2, low: 1 }
-          return priorityOrder[b.priority] - priorityOrder[a.priority]
+    // Group tasks by category
+    const grouped = filtered.reduce((acc, task) => {
+      const category = task.category.toLowerCase()
+      if (!acc[category]) acc[category] = []
+      acc[category].push(task)
+      return acc
+    }, {} as Record<string, Task[]>)
+
+    // Sort tasks within each category
+    Object.keys(grouped).forEach(category => {
+      grouped[category].sort((a, b) => {
+        const aDate = new Date(a.dueDate)
+        const bDate = new Date(b.dueDate)
+        const now = new Date()
+        
+        switch (sortBy) {
+          case 'priority': {
+            const priorityOrder = { high: 3, medium: 2, low: 1 }
+            return priorityOrder[b.priority] - priorityOrder[a.priority]
+          }
+          case 'created':
+            return new Date(b.createdDate || 0).getTime() - new Date(a.createdDate || 0).getTime()
+          default: // due-date
+            // Overdue tasks first, then today, then future
+            const aOverdue = aDate < now && !a.completed
+            const bOverdue = bDate < now && !b.completed
+            const aToday = aDate.toDateString() === now.toDateString()
+            const bToday = bDate.toDateString() === now.toDateString()
+            
+            if (aOverdue && !bOverdue) return -1
+            if (!aOverdue && bOverdue) return 1
+            if (aToday && !bToday && !bOverdue) return -1
+            if (!aToday && bToday && !aOverdue) return 1
+            
+            return aDate.getTime() - bDate.getTime()
         }
-        case 'category':
-          return a.category.localeCompare(b.category)
-        case 'created':
-          return new Date(b.createdDate || 0).getTime() - new Date(a.createdDate || 0).getTime()
-        default: // due-date
-          // Overdue tasks first, then today, then future
-          const aOverdue = aDate < now && !a.completed
-          const bOverdue = bDate < now && !b.completed
-          const aToday = aDate.toDateString() === now.toDateString()
-          const bToday = bDate.toDateString() === now.toDateString()
-          
-          if (aOverdue && !bOverdue) return -1
-          if (!aOverdue && bOverdue) return 1
-          if (aToday && !bToday && !bOverdue) return -1
-          if (!aToday && bToday && !aOverdue) return 1
-          
-          return aDate.getTime() - bDate.getTime()
-      }
+      })
     })
 
-    return filtered
+    return grouped
   }, [tasks, searchQuery, activeFilter, sortBy, showCompleted])
 
   // Keyboard shortcuts
@@ -880,9 +1038,16 @@ export default function Dashboard() {
     )
   }
 
+  // Get ordered categories for display
+  const orderedCategories = Object.keys(tasksByCategory).sort((a, b) => {
+    const configA = CATEGORY_CONFIG[a as keyof typeof CATEGORY_CONFIG]
+    const configB = CATEGORY_CONFIG[b as keyof typeof CATEGORY_CONFIG]
+    return (configA?.order || 999) - (configB?.order || 999)
+  })
+
   return (
     <div className="w-full max-w-6xl mx-auto p-6 space-y-6">
-      {/* System Status Display - Simplified, removed auto-task generation status */}
+      {/* System Status Display */}
       <div className="card-neon rounded-lg p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
@@ -920,10 +1085,10 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Header */}
+      {/* Header with controls */}
       <div className="card-neon rounded-lg p-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-          <h1 className="text-2xl font-bold text-foreground neon-text animate-neon-pulse">Today's Tasks</h1>
+          <h1 className="text-2xl font-bold text-foreground neon-text animate-neon-pulse">Tasks by Category</h1>
           <div className="flex items-center gap-2">
             <Dialog open={isCreateTaskOpen} onOpenChange={setIsCreateTaskOpen}>
               <DialogTrigger asChild>
@@ -964,9 +1129,14 @@ export default function Dashboard() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="card-neon">
-                        {CATEGORIES.map(cat => (
-                          <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                        ))}
+                        {CATEGORIES.map(cat => {
+                          const config = CATEGORY_CONFIG[cat as keyof typeof CATEGORY_CONFIG]
+                          return (
+                            <SelectItem key={cat} value={cat}>
+                              {config?.label || cat}
+                            </SelectItem>
+                          )
+                        })}
                       </SelectContent>
                     </Select>
                   </div>
@@ -1275,11 +1445,11 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Main Content Grid */}
+      {/* Main Content Grid - Segregated by Category */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Task List */}
-        <div className="lg:col-span-2 space-y-2">
-          {filteredAndSortedTasks.length === 0 ? (
+        {/* Task Categories List */}
+        <div className="lg:col-span-2 space-y-6">
+          {orderedCategories.length === 0 ? (
             <Card className="card-neon">
               <CardContent className="p-8 text-center">
                 <CalendarFold className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
@@ -1291,66 +1461,85 @@ export default function Dashboard() {
               </CardContent>
             </Card>
           ) : (
-            filteredAndSortedTasks.map(task => (
-              <Card
-                key={task.id}
-                className={`cursor-pointer transition-all hover:shadow-md card-neon ${
-                  selectedTask?.id === task.id ? 'ring-2 ring-primary neon-glow' : ''
-                } ${task.completed ? 'opacity-60' : ''} ${
-                  isOverdue(task.dueDate) && !task.completed ? 'task-overdue' : ''
-                }`}
-                onClick={() => setSelectedTask(task)}
-              >
-                <CardContent className="p-4">
-                  <div className="flex items-start space-x-3">
-                    <Checkbox
-                      checked={task.completed}
-                      onCheckedChange={() => markComplete(task.id)}
-                      onClick={(e) => e.stopPropagation()}
-                      className="mt-1"
-                    />
-                    
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1 min-w-0">
-                          <p className={`font-medium ${task.completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
-                            {task.description}
-                          </p>
-                          
-                          <div className="flex items-center space-x-2 mt-2">
-                            <Badge variant="outline" className="text-xs neon-border">
-                              {task.category}
-                            </Badge>
-                            
-                            <Badge className={`text-xs ${getPriorityColor(task.priority)}`}>
-                              {task.priority}
-                            </Badge>
-                            
-                            {task.frequency && (
-                              <Badge variant="outline" className="text-xs neon-border">
-                                <CalendarDays className="h-3 w-3 mr-1" />
-                                {task.frequency}
-                              </Badge>
-                            )}
-                            
-                            {isOverdue(task.dueDate) && !task.completed && (
-                              <Badge variant="destructive" className="text-xs">
-                                Overdue
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
-                        
-                        <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-                          <Clock3 className="h-4 w-4" />
-                          <span>{formatDate(task.dueDate)}</span>
-                        </div>
+            orderedCategories.map(category => {
+              const categoryTasks = tasksByCategory[category]
+              const config = CATEGORY_CONFIG[category as keyof typeof CATEGORY_CONFIG]
+              const IconComponent = config?.icon || ListTodo
+              
+              return (
+                <Card key={category} className={`card-neon ${config?.color || 'bg-gray-500/10 border-gray-500/20'}`}>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <IconComponent className="h-5 w-5" />
+                        <span>{config?.label || category}</span>
+                        <Badge variant="outline" className="ml-2">
+                          {categoryTasks.length}
+                        </Badge>
                       </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {categoryTasks.map(task => (
+                      <Card
+                        key={task.id}
+                        className={`cursor-pointer transition-all hover:shadow-md card-neon bg-background/50 ${
+                          selectedTask?.id === task.id ? 'ring-2 ring-primary neon-glow' : ''
+                        } ${task.completed ? 'opacity-60' : ''} ${
+                          isOverdue(task.dueDate) && !task.completed ? 'task-overdue' : ''
+                        }`}
+                        onClick={() => setSelectedTask(task)}
+                      >
+                        <CardContent className="p-3">
+                          <div className="flex items-start space-x-3">
+                            <Checkbox
+                              checked={task.completed}
+                              onCheckedChange={() => markComplete(task.id)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="mt-1"
+                            />
+                            
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1 min-w-0">
+                                  <p className={`font-medium text-sm ${task.completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
+                                    {task.description}
+                                  </p>
+                                  
+                                  <div className="flex items-center space-x-2 mt-2">
+                                    <Badge className={`text-xs ${getPriorityColor(task.priority)}`}>
+                                      {task.priority}
+                                    </Badge>
+                                    
+                                    {task.frequency && (
+                                      <Badge variant="outline" className="text-xs neon-border">
+                                        <CalendarDays className="h-3 w-3 mr-1" />
+                                        {task.frequency}
+                                      </Badge>
+                                    )}
+                                    
+                                    {isOverdue(task.dueDate) && !task.completed && (
+                                      <Badge variant="destructive" className="text-xs">
+                                        Overdue
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </div>
+                                
+                                <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+                                  <Clock3 className="h-4 w-4" />
+                                  <span>{formatDate(task.dueDate)}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </CardContent>
+                </Card>
+              )
+            })
           )}
         </div>
 
@@ -1388,7 +1577,7 @@ export default function Dashboard() {
                 <div>
                   <Label className="text-sm font-medium">Category</Label>
                   <p className="text-sm text-muted-foreground mt-1">
-                    {selectedTask.category}
+                    {CATEGORY_CONFIG[selectedTask.category.toLowerCase() as keyof typeof CATEGORY_CONFIG]?.label || selectedTask.category}
                   </p>
                 </div>
                 
@@ -1490,7 +1679,7 @@ export default function Dashboard() {
                       variant="outline"
                       size="sm"
                       className="flex-1 neon-border"
-                      onClick={() => speak(`Task: ${selectedTask.description}. Due: ${formatDate(selectedTask.dueDate)}. Priority: ${selectedTask.priority}. Category: ${selectedTask.category}.`)}
+                      onClick={() => speak(`Task: ${selectedTask.description}. Due: ${formatDate(selectedTask.dueDate)}. Priority: ${selectedTask.priority}. Category: ${CATEGORY_CONFIG[selectedTask.category.toLowerCase() as keyof typeof CATEGORY_CONFIG]?.label || selectedTask.category}.`)}
                     >
                       <Volume2 className="h-4 w-4 mr-1" />
                       Speak
