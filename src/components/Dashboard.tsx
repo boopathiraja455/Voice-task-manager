@@ -379,6 +379,58 @@ export default function Dashboard() {
     }
   }, [selectedVoice, logEvent])
 
+  // Speech functions with fallback mechanisms and system volume control
+  const speak = useCallback((text: string, repeat = false) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window) || !selectedVoice) {
+      logEvent('Speech synthesis not available or no voice selected', 'warning')
+      return
+    }
+
+    try {
+      window.speechSynthesis.cancel()
+      
+      const utterance = new SpeechSynthesisUtterance(text)
+      const voice = voices.find(v => v.voiceURI === selectedVoice.voiceURI)
+      
+      if (voice) {
+        utterance.voice = voice
+      }
+      
+      utterance.rate = speechRate
+      utterance.pitch = speechPitch
+      utterance.volume = speechVolume * systemVolume // Apply system volume multiplier
+      
+      utterance.onstart = () => logEvent(`Started speaking: "${text.substring(0, 50)}..."`)
+      utterance.onend = () => {
+        logEvent('Speech completed')
+        
+        if (repeat) {
+          setTimeout(() => {
+            const repeatUtterance = new SpeechSynthesisUtterance(text)
+            if (voice) repeatUtterance.voice = voice
+            repeatUtterance.rate = speechRate
+            repeatUtterance.pitch = speechPitch
+            repeatUtterance.volume = speechVolume * systemVolume
+            window.speechSynthesis.speak(repeatUtterance)
+          }, 2000)
+        }
+      }
+      
+      utterance.onerror = (event) => {
+        logEvent(`Speech error: ${event.error}`, 'error')
+        
+        // Fallback: show visual notification
+        toast.error('Speech Error', {
+          description: `Unable to speak: "${text.substring(0, 100)}..."`
+        })
+      }
+      
+      window.speechSynthesis.speak(utterance)
+    } catch (err) {
+      logEvent(`Speech synthesis failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error')
+    }
+  }, [selectedVoice, voices, speechVolume, speechRate, speechPitch, systemVolume, logEvent])
+
   // Enhanced separate announcements for each category
   const speakMorningAnnouncement = useCallback(() => {
     const today = new Date().toDateString()
@@ -615,58 +667,6 @@ export default function Dashboard() {
     
     return cleanup
   }, [announcementsEnabled, morningAnnouncementEnabled, eveningAnnouncementEnabled, tasks, logEvent, speakMorningAnnouncement, speakEveningAnnouncement])
-
-  // Speech functions with fallback mechanisms and system volume control
-  const speak = useCallback((text: string, repeat = false) => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window) || !selectedVoice) {
-      logEvent('Speech synthesis not available or no voice selected', 'warning')
-      return
-    }
-
-    try {
-      window.speechSynthesis.cancel()
-      
-      const utterance = new SpeechSynthesisUtterance(text)
-      const voice = voices.find(v => v.voiceURI === selectedVoice.voiceURI)
-      
-      if (voice) {
-        utterance.voice = voice
-      }
-      
-      utterance.rate = speechRate
-      utterance.pitch = speechPitch
-      utterance.volume = speechVolume * systemVolume // Apply system volume multiplier
-      
-      utterance.onstart = () => logEvent(`Started speaking: "${text.substring(0, 50)}..."`)
-      utterance.onend = () => {
-        logEvent('Speech completed')
-        
-        if (repeat) {
-          setTimeout(() => {
-            const repeatUtterance = new SpeechSynthesisUtterance(text)
-            if (voice) repeatUtterance.voice = voice
-            repeatUtterance.rate = speechRate
-            repeatUtterance.pitch = speechPitch
-            repeatUtterance.volume = speechVolume * systemVolume
-            window.speechSynthesis.speak(repeatUtterance)
-          }, 2000)
-        }
-      }
-      
-      utterance.onerror = (event) => {
-        logEvent(`Speech error: ${event.error}`, 'error')
-        
-        // Fallback: show visual notification
-        toast.error('Speech Error', {
-          description: `Unable to speak: "${text.substring(0, 100)}..."`
-        })
-      }
-      
-      window.speechSynthesis.speak(utterance)
-    } catch (err) {
-      logEvent(`Speech synthesis failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error')
-    }
-  }, [selectedVoice, voices, speechVolume, speechRate, speechPitch, systemVolume, logEvent])
 
   // Enhanced announcement muting system
   const muteAllAnnouncements = useCallback(() => {
