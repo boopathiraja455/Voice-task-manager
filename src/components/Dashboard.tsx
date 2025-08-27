@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Clock3, Calendar, ListTodo, CalendarX2, CalendarCheck2, ClockAlert, CalendarDays, Clock1, CalendarFold, Timer, CalendarClock, ListFilter, ChartGantt, CalendarSearch, CalendarPlus, Volume2, Zap, Clock4 } from 'lucide-react'
+import { Clock3, Calendar, ListTodo, CalendarX2, CalendarCheck2, ClockAlert, CalendarDays, Clock1, CalendarFold, Timer, CalendarClock, ListFilter, ChartGantt, CalendarSearch, CalendarPlus, Volume2, Clock4 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -33,6 +33,13 @@ interface VoicePreference {
   voiceURI: string
 }
 
+interface VoiceSettings {
+  voiceURI: string
+  volume: number
+  rate: number
+  pitch: number
+}
+
 type FilterType = 'all' | 'due-today' | 'overdue' | 'completed' | 'by-category'
 type SortType = 'due-date' | 'priority' | 'category' | 'created'
 
@@ -50,22 +57,6 @@ const FREQUENCIES = [
 ]
 
 const CATEGORIES = ['Work', 'Personal', 'Health', 'Finance', 'Learning', 'Other']
-
-// Sample task templates for automated generation
-const SAMPLE_TASK_TEMPLATES = [
-  { description: "Review project documentation", category: "Work", priority: "medium" as const },
-  { description: "Take a 10-minute break", category: "Health", priority: "low" as const },
-  { description: "Update daily expenses", category: "Finance", priority: "medium" as const },
-  { description: "Practice coding skills", category: "Learning", priority: "high" as const },
-  { description: "Call family member", category: "Personal", priority: "medium" as const },
-  { description: "Organize desktop files", category: "Work", priority: "low" as const },
-  { description: "Drink water", category: "Health", priority: "low" as const },
-  { description: "Check investment portfolio", category: "Finance", priority: "medium" as const },
-  { description: "Read tech articles", category: "Learning", priority: "medium" as const },
-  { description: "Plan weekend activities", category: "Personal", priority: "low" as const },
-  { description: "Backup important files", category: "Work", priority: "high" as const },
-  { description: "Take vitamins", category: "Health", priority: "medium" as const }
-]
 
 export default function Dashboard() {
   // Core state
@@ -94,11 +85,7 @@ export default function Dashboard() {
   const [speechVolume, setSpeechVolume] = useState(0.8)
   const [speechRate, setSpeechRate] = useState(0.9)
   const [speechPitch, setSpeechPitch] = useState(1.0)
-  
-  // Automated task generation
-  const [autoTaskGeneration, setAutoTaskGeneration] = useState(true)
-  const [lastGeneratedTask, setLastGeneratedTask] = useState<Date | null>(null)
-  const [generationCount, setGenerationCount] = useState(0)
+  const [systemVolume, setSystemVolume] = useState(0.8)
   
   // Precise timing and scheduling
   const [currentTime, setCurrentTime] = useState(new Date())
@@ -106,7 +93,6 @@ export default function Dashboard() {
   const [schedulingLog, setSchedulingLog] = useState<string[]>([])
   
   // Refs for cleanup
-  const taskGenerationInterval = useRef<NodeJS.Timeout | null>(null)
   const timeUpdateInterval = useRef<NodeJS.Timeout | null>(null)
   const announcementTimeouts = useRef<NodeJS.Timeout[]>([])
   
@@ -136,6 +122,74 @@ export default function Dashboard() {
       toast.error('System Error', { description: message })
     }
   }, [])
+
+  // Load settings from JSON file
+  const loadSettings = useCallback(async () => {
+    try {
+      const response = await fetch('/api/settings')
+      if (response.ok) {
+        const settings = await response.json()
+        
+        if (settings.voice) {
+          setSelectedVoice(settings.voice)
+          setSpeechVolume(settings.voice.volume || 0.8)
+          setSpeechRate(settings.voice.rate || 0.9)
+          setSpeechPitch(settings.voice.pitch || 1.0)
+        }
+        
+        if (settings.announcements) {
+          setAnnouncementsEnabled(settings.announcements.enabled ?? true)
+          setMorningAnnouncementEnabled(settings.announcements.morning ?? true)  
+          setEveningAnnouncementEnabled(settings.announcements.evening ?? true)
+        }
+        
+        if (settings.system) {
+          setSystemVolume(settings.system.volume || 0.8)
+        }
+        
+        logEvent('Settings loaded from JSON file')
+      }
+    } catch (error) {
+      logEvent('Failed to load settings, using defaults', 'warning')
+    }
+  }, [logEvent])
+
+  // Save settings to JSON file
+  const saveSettings = useCallback(async () => {
+    try {
+      const settings = {
+        voice: {
+          ...selectedVoice,
+          volume: speechVolume,
+          rate: speechRate,
+          pitch: speechPitch
+        },
+        announcements: {
+          enabled: announcementsEnabled,
+          morning: morningAnnouncementEnabled,
+          evening: eveningAnnouncementEnabled
+        },
+        system: {
+          volume: systemVolume
+        },
+        updatedAt: new Date().toISOString()
+      }
+
+      const response = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings)
+      })
+
+      if (response.ok) {
+        logEvent('Settings saved to JSON file')
+      } else {
+        throw new Error('Failed to save settings')
+      }
+    } catch (error) {
+      logEvent('Failed to save settings', 'error')
+    }
+  }, [selectedVoice, speechVolume, speechRate, speechPitch, announcementsEnabled, morningAnnouncementEnabled, eveningAnnouncementEnabled, systemVolume, logEvent])
 
   // Data fetching with enhanced error handling
   const fetchTasks = useCallback(async (retryCount = 0) => {
@@ -198,13 +252,18 @@ export default function Dashboard() {
     return () => window.removeEventListener('refreshTasks', handleRefreshTasks)
   }, [fetchTasks, logEvent])
 
-  // Initialize data and speech - REMOVED periodic refresh to stop GUI refreshing
+  // Initialize data and speech
   useEffect(() => {
     fetchTasks()
-    
-    // Removed the setInterval that was causing periodic refreshing every minute
-    // Tasks will only refresh when explicitly requested via events or user actions
-  }, [fetchTasks])
+    loadSettings()
+  }, [fetchTasks, loadSettings])
+
+  // Save settings whenever they change
+  useEffect(() => {
+    if (selectedVoice) {
+      saveSettings()
+    }
+  }, [selectedVoice, speechVolume, speechRate, speechPitch, announcementsEnabled, morningAnnouncementEnabled, eveningAnnouncementEnabled, systemVolume, saveSettings])
 
   // Current time tracking for precise scheduling
   useEffect(() => {
@@ -219,82 +278,7 @@ export default function Dashboard() {
     }
   }, [])
 
-  // Automated task generation at 1-minute intervals - Made less intrusive
-  useEffect(() => {
-    if (!autoTaskGeneration) return
-
-    logEvent('Starting automated task generation system')
-
-    const generateSampleTask = async () => {
-      try {
-        // Prevent concurrent generation
-        if (lastGeneratedTask && new Date().getTime() - lastGeneratedTask.getTime() < 55000) {
-          return
-        }
-
-        const now = new Date()
-        
-        // Generate due date 3-4 minutes from now
-        const dueDate = new Date(now)
-        dueDate.setMinutes(dueDate.getMinutes() + Math.floor(Math.random() * 2) + 3) // 3-4 minutes
-
-        // Select random template
-        const template = SAMPLE_TASK_TEMPLATES[generationCount % SAMPLE_TASK_TEMPLATES.length]
-        
-        const newTask = {
-          description: `${template.description} (Auto-${generationCount + 1})`,
-          dueDate: dueDate.toISOString(),
-          category: template.category,
-          priority: template.priority,
-          frequency: null,
-          completed: false
-        }
-
-        logEvent(`Generating automated task: "${newTask.description}" due at ${dueDate.toLocaleTimeString()}`)
-
-        const response = await fetch('/api/tasks', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(newTask)
-        })
-
-        if (!response.ok) {
-          throw new Error(`Failed to create automated task: ${response.status}`)
-        }
-
-        const createdTask = await response.json()
-        // Update tasks silently without triggering UI refresh
-        setTasks(prev => [...prev, createdTask])
-        setLastGeneratedTask(now)
-        setGenerationCount(prev => prev + 1)
-
-        // Less intrusive notification - only show brief toast
-        toast.success('New Task Auto-Generated', {
-          description: `Due in ${Math.ceil((dueDate.getTime() - now.getTime()) / 60000)} min`,
-          duration: 2000 // Shorter duration
-        })
-
-        logEvent(`Successfully created automated task with ID: ${createdTask.id}`)
-      } catch (err) {
-        logEvent(`Failed to generate automated task: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error')
-      }
-    }
-
-    // Generate first task after a small delay, then every minute
-    const initialTimeout = setTimeout(generateSampleTask, 5000) // 5 second delay before first generation
-    
-    taskGenerationInterval.current = setInterval(generateSampleTask, 60000) // Every 60 seconds
-
-    return () => {
-      clearTimeout(initialTimeout)
-      if (taskGenerationInterval.current) {
-        clearInterval(taskGenerationInterval.current)
-        logEvent('Stopped automated task generation system')
-      }
-    }
-  }, [autoTaskGeneration, lastGeneratedTask, generationCount, logEvent])
-
-  // Initialize speech synthesis
+  // Initialize speech synthesis with Microsoft Prabhat (en-IN) as default
   useEffect(() => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
 
@@ -302,24 +286,27 @@ export default function Dashboard() {
       const availableVoices = window.speechSynthesis.getVoices()
       setVoices(availableVoices)
       
-      // Prefer female or Edge voices
-      const preferredVoice = availableVoices.find(voice => 
-        (voice.name.toLowerCase().includes('female') || 
-         voice.name.toLowerCase().includes('zira') ||
-         voice.name.toLowerCase().includes('eva') ||
-         voice.name.toLowerCase().includes('aria') ||
-         voice.name.toLowerCase().includes('jenny') ||
-         voice.voiceURI.includes('Microsoft')) &&
-        voice.lang.startsWith('en')
-      ) || availableVoices.find(voice => voice.lang.startsWith('en'))
-      
-      if (preferredVoice && !selectedVoice) {
-        setSelectedVoice({
-          name: preferredVoice.name,
-          lang: preferredVoice.lang,
-          voiceURI: preferredVoice.voiceURI
-        })
-        logEvent(`Selected voice: ${preferredVoice.name}`)
+      // Only set default voice if no voice is currently selected
+      if (!selectedVoice && availableVoices.length > 0) {
+        // Default to Microsoft Prabhat (en-IN) or closest match
+        const prabhatVoice = availableVoices.find(voice => 
+          voice.name.toLowerCase().includes('prabhat') && voice.lang === 'en-IN'
+        )
+        
+        const preferredVoice = prabhatVoice || availableVoices.find(voice => 
+          voice.lang === 'en-IN' || 
+          (voice.name.toLowerCase().includes('microsoft') && voice.lang.startsWith('en')) ||
+          (voice.name.toLowerCase().includes('natural') && voice.lang.startsWith('en'))
+        ) || availableVoices.find(voice => voice.lang.startsWith('en'))
+        
+        if (preferredVoice) {
+          setSelectedVoice({
+            name: preferredVoice.name,
+            lang: preferredVoice.lang,
+            voiceURI: preferredVoice.voiceURI
+          })
+          logEvent(`Selected default voice: ${preferredVoice.name}`)
+        }
       }
     }
 
@@ -428,7 +415,7 @@ export default function Dashboard() {
     return cleanup
   }, [announcementsEnabled, morningAnnouncementEnabled, eveningAnnouncementEnabled, tasks, logEvent])
 
-  // Speech functions with fallback mechanisms
+  // Speech functions with fallback mechanisms and system volume control
   const speak = useCallback((text: string, repeat = false) => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window) || !selectedVoice) {
       logEvent('Speech synthesis not available or no voice selected', 'warning')
@@ -447,7 +434,7 @@ export default function Dashboard() {
       
       utterance.rate = speechRate
       utterance.pitch = speechPitch
-      utterance.volume = speechVolume
+      utterance.volume = speechVolume * systemVolume // Apply system volume multiplier
       
       utterance.onstart = () => logEvent(`Started speaking: "${text.substring(0, 50)}..."`)
       utterance.onend = () => {
@@ -459,7 +446,7 @@ export default function Dashboard() {
             if (voice) repeatUtterance.voice = voice
             repeatUtterance.rate = speechRate
             repeatUtterance.pitch = speechPitch
-            repeatUtterance.volume = speechVolume
+            repeatUtterance.volume = speechVolume * systemVolume
             window.speechSynthesis.speak(repeatUtterance)
           }, 2000)
         }
@@ -478,7 +465,40 @@ export default function Dashboard() {
     } catch (err) {
       logEvent(`Speech synthesis failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error')
     }
-  }, [selectedVoice, voices, speechVolume, speechRate, speechPitch, logEvent])
+  }, [selectedVoice, voices, speechVolume, speechRate, speechPitch, systemVolume, logEvent])
+
+  // Enhanced announcement muting system
+  const muteAllAnnouncements = useCallback(() => {
+    window.speechSynthesis.cancel()
+    setAnnouncementsEnabled(false)
+    
+    // Clear all scheduled announcements
+    announcementTimeouts.current.forEach(clearTimeout)
+    announcementTimeouts.current = []
+    
+    toast.success('All announcements muted')
+    logEvent('All announcements muted by user')
+  }, [])
+
+  const unmuteAnnouncements = useCallback(() => {
+    setAnnouncementsEnabled(true)
+    toast.success('Announcements enabled')
+    logEvent('Announcements re-enabled by user')
+  }, [])
+
+  const toggleSystemMute = useCallback(() => {
+    const newVolume = systemVolume === 0 ? 0.8 : 0
+    setSystemVolume(newVolume)
+    
+    if (newVolume === 0) {
+      window.speechSynthesis.cancel()
+      toast.success('System audio muted')
+      logEvent('System audio muted')
+    } else {
+      toast.success('System audio unmuted')
+      logEvent('System audio unmuted')
+    }
+  }, [systemVolume])
 
   const speakMorningAnnouncement = useCallback(() => {
     const today = new Date().toDateString()
@@ -766,12 +786,24 @@ export default function Dashboard() {
           const filters: FilterType[] = ['all', 'due-today', 'overdue', 'completed', 'by-category']
           setActiveFilter(filters[parseInt(e.key) - 1])
           break
+        case 'm':
+          e.preventDefault()
+          if (announcementsEnabled) {
+            muteAllAnnouncements()
+          } else {
+            unmuteAnnouncements()
+          }
+          break
+        case 'M':
+          e.preventDefault()
+          toggleSystemMute()
+          break
       }
     }
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [selectedTask, markComplete])
+  }, [selectedTask, markComplete, announcementsEnabled, muteAllAnnouncements, unmuteAnnouncements, toggleSystemMute])
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
@@ -850,14 +882,10 @@ export default function Dashboard() {
 
   return (
     <div className="w-full max-w-6xl mx-auto p-6 space-y-6">
-      {/* System Status Display */}
+      {/* System Status Display - Simplified, removed auto-task generation status */}
       <div className="card-neon rounded-lg p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
-              <div className={`w-2 h-2 rounded-full ${autoTaskGeneration ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`} />
-              <span className="text-sm">Auto Tasks: {autoTaskGeneration ? 'Active' : 'Inactive'}</span>
-            </div>
             <div className="flex items-center space-x-2">
               <Clock4 className="h-4 w-4" />
               <span className="text-sm">{currentTime.toLocaleTimeString()}</span>
@@ -870,17 +898,23 @@ export default function Dashboard() {
             )}
           </div>
           <div className="flex items-center space-x-2">
-            <Badge variant="outline" className="neon-border">
-              Generated: {generationCount}
-            </Badge>
             <Button
-              variant="outline"
+              variant={systemVolume > 0 ? "default" : "destructive"}
               size="sm"
-              onClick={() => setAutoTaskGeneration(!autoTaskGeneration)}
-              className="neon-border"
+              onClick={toggleSystemMute}
+              className={systemVolume > 0 ? "neon-glow" : ""}
             >
-              <Zap className="h-4 w-4 mr-2" />
-              {autoTaskGeneration ? 'Stop' : 'Start'} Auto Tasks
+              <Volume2 className="h-4 w-4 mr-2" />
+              {systemVolume > 0 ? 'Mute System' : 'Unmute System'}
+            </Button>
+            <Button
+              variant={announcementsEnabled ? "default" : "outline"}
+              size="sm"
+              onClick={announcementsEnabled ? muteAllAnnouncements : unmuteAnnouncements}
+              className={announcementsEnabled ? "neon-glow" : "neon-border"}
+            >
+              <Volume2 className="h-4 w-4 mr-2" />
+              {announcementsEnabled ? 'Mute' : 'Unmute'}
             </Button>
           </div>
         </div>
@@ -1069,6 +1103,22 @@ export default function Dashboard() {
                         </span>
                       </div>
                     </div>
+
+                    <div className="space-y-2">
+                      <Label>System Volume</Label>
+                      <Input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.1"
+                        value={systemVolume}
+                        onChange={(e) => setSystemVolume(parseFloat(e.target.value))}
+                        className="neon-border"
+                      />
+                      <span className="text-sm text-muted-foreground">
+                        {Math.round(systemVolume * 100)}%
+                      </span>
+                    </div>
                     
                     <div className="flex gap-2">
                       <Button 
@@ -1131,6 +1181,39 @@ export default function Dashboard() {
                         </div>
                       </>
                     )}
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label className="text-lg font-semibold">System Control</Label>
+                    <div className="flex gap-2">
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={muteAllAnnouncements}
+                        className="neon-border flex-1"
+                      >
+                        Quick Mute All
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => window.speechSynthesis.cancel()}
+                        className="neon-border flex-1"
+                      >
+                        Stop Speaking
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={toggleSystemMute}
+                        className="neon-border flex-1"
+                      >
+                        {systemVolume > 0 ? 'System Mute' : 'System Unmute'}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Keyboard shortcuts: Press 'M' to toggle announcements, 'Shift+M' for system mute
+                    </p>
                   </div>
                 </div>
               </DialogContent>
