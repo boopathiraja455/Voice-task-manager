@@ -379,188 +379,6 @@ export default function Dashboard() {
     }
   }, [selectedVoice, logEvent])
 
-  // Precise announcement scheduling
-  useEffect(() => {
-    if (!announcementsEnabled || typeof window === 'undefined') return
-
-    // Clear existing timeouts
-    announcementTimeouts.current.forEach(clearTimeout)
-    announcementTimeouts.current = []
-
-    const scheduleAnnouncements = () => {
-      const now = new Date()
-      
-      // Declare times at function scope to avoid reference errors
-      const morningTime = new Date(now)
-      morningTime.setHours(7, 0, 0, 0)
-      if (morningTime <= now) {
-        morningTime.setDate(morningTime.getDate() + 1)
-      }
-      
-      const eveningTime = new Date(now)
-      eveningTime.setHours(21, 0, 0, 0)
-      if (eveningTime <= now) {
-        eveningTime.setDate(eveningTime.getDate() + 1)
-      }
-      
-      // Morning announcement at 7:00 AM
-      if (morningAnnouncementEnabled) {
-        const morningTimeout = morningTime.getTime() - now.getTime()
-        
-        const timeout = setTimeout(() => {
-          if (document.visibilityState === 'visible') {
-            logEvent('Triggering morning announcement')
-            speakMorningAnnouncement()
-          }
-        }, morningTimeout)
-        
-        announcementTimeouts.current.push(timeout)
-        logEvent(`Morning announcement scheduled for ${morningTime.toLocaleString()}`)
-      }
-      
-      // Evening announcement at 9:00 PM
-      if (eveningAnnouncementEnabled) {
-        const eveningTimeout = eveningTime.getTime() - now.getTime()
-        
-        const timeout = setTimeout(() => {
-          if (document.visibilityState === 'visible') {
-            logEvent('Triggering evening announcement')
-            speakEveningAnnouncement()
-          }
-        }, eveningTimeout)
-        
-        announcementTimeouts.current.push(timeout)
-        logEvent(`Evening announcement scheduled for ${eveningTime.toLocaleString()}`)
-      }
-      
-      // Set next announcement time for UI display
-      if (morningAnnouncementEnabled && eveningAnnouncementEnabled) {
-        if (morningTime < eveningTime) {
-          setNextAnnouncementTime(morningTime)
-        } else {
-          setNextAnnouncementEnabled(eveningTime)
-        }
-      } else if (morningAnnouncementEnabled) {
-        setNextAnnouncementTime(morningTime)
-      } else if (eveningAnnouncementEnabled) {
-        setNextAnnouncementTime(eveningTime)
-      } else {
-        setNextAnnouncementTime(null)
-      }
-      
-      // Check for due task announcements every minute
-      const checkDueTasks = () => {
-        const dueTasks = tasks.filter(task => {
-          const taskDue = new Date(task.dueDate)
-          const timeDiff = Math.abs(taskDue.getTime() - now.getTime())
-          return timeDiff <= 30000 && !task.completed // Within 30 seconds
-        })
-        
-        dueTasks.forEach(task => {
-          logEvent(`Task due now: "${task.description}"`)
-          speak(`Attention! Task "${task.description}" is now due.`)
-        })
-      }
-      
-      const dueCheckInterval = setInterval(checkDueTasks, 30000) // Check every 30 seconds
-      
-      // Clean up on unmount
-      return () => {
-        clearInterval(dueCheckInterval)
-        announcementTimeouts.current.forEach(clearTimeout)
-      }
-    }
-
-    const cleanup = scheduleAnnouncements()
-    
-    return cleanup
-  }, [announcementsEnabled, morningAnnouncementEnabled, eveningAnnouncementEnabled, tasks, logEvent, speakMorningAnnouncement, speakEveningAnnouncement])
-
-  // Speech functions with fallback mechanisms and system volume control
-  const speak = useCallback((text: string, repeat = false) => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window) || !selectedVoice) {
-      logEvent('Speech synthesis not available or no voice selected', 'warning')
-      return
-    }
-
-    try {
-      window.speechSynthesis.cancel()
-      
-      const utterance = new SpeechSynthesisUtterance(text)
-      const voice = voices.find(v => v.voiceURI === selectedVoice.voiceURI)
-      
-      if (voice) {
-        utterance.voice = voice
-      }
-      
-      utterance.rate = speechRate
-      utterance.pitch = speechPitch
-      utterance.volume = speechVolume * systemVolume // Apply system volume multiplier
-      
-      utterance.onstart = () => logEvent(`Started speaking: "${text.substring(0, 50)}..."`)
-      utterance.onend = () => {
-        logEvent('Speech completed')
-        
-        if (repeat) {
-          setTimeout(() => {
-            const repeatUtterance = new SpeechSynthesisUtterance(text)
-            if (voice) repeatUtterance.voice = voice
-            repeatUtterance.rate = speechRate
-            repeatUtterance.pitch = speechPitch
-            repeatUtterance.volume = speechVolume * systemVolume
-            window.speechSynthesis.speak(repeatUtterance)
-          }, 2000)
-        }
-      }
-      
-      utterance.onerror = (event) => {
-        logEvent(`Speech error: ${event.error}`, 'error')
-        
-        // Fallback: show visual notification
-        toast.error('Speech Error', {
-          description: `Unable to speak: "${text.substring(0, 100)}..."`
-        })
-      }
-      
-      window.speechSynthesis.speak(utterance)
-    } catch (err) {
-      logEvent(`Speech synthesis failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error')
-    }
-  }, [selectedVoice, voices, speechVolume, speechRate, speechPitch, systemVolume, logEvent])
-
-  // Enhanced announcement muting system
-  const muteAllAnnouncements = useCallback(() => {
-    window.speechSynthesis.cancel()
-    setAnnouncementsEnabled(false)
-    
-    // Clear all scheduled announcements
-    announcementTimeouts.current.forEach(clearTimeout)
-    announcementTimeouts.current = []
-    
-    toast.success('All announcements muted')
-    logEvent('All announcements muted by user')
-  }, [])
-
-  const unmuteAnnouncements = useCallback(() => {
-    setAnnouncementsEnabled(true)
-    toast.success('Announcements enabled')
-    logEvent('Announcements re-enabled by user')
-  }, [])
-
-  const toggleSystemMute = useCallback(() => {
-    const newVolume = systemVolume === 0 ? 0.8 : 0
-    setSystemVolume(newVolume)
-    
-    if (newVolume === 0) {
-      window.speechSynthesis.cancel()
-      toast.success('System audio muted')
-      logEvent('System audio muted')
-    } else {
-      toast.success('System audio unmuted')
-      logEvent('System audio unmuted')
-    }
-  }, [systemVolume])
-
   // Enhanced separate announcements for each category
   const speakMorningAnnouncement = useCallback(() => {
     const today = new Date().toDateString()
@@ -700,6 +518,188 @@ export default function Dashboard() {
     
     logEvent(`Evening announcement delivered - Tomorrow: ${tomorrowTasks.length}, Overdue: ${overdueTasks.length}`)
   }, [tasks, speak, logEvent])
+
+  // Precise announcement scheduling
+  useEffect(() => {
+    if (!announcementsEnabled || typeof window === 'undefined') return
+
+    // Clear existing timeouts
+    announcementTimeouts.current.forEach(clearTimeout)
+    announcementTimeouts.current = []
+
+    const scheduleAnnouncements = () => {
+      const now = new Date()
+      
+      // Declare times at function scope to avoid reference errors
+      const morningTime = new Date(now)
+      morningTime.setHours(7, 0, 0, 0)
+      if (morningTime <= now) {
+        morningTime.setDate(morningTime.getDate() + 1)
+      }
+      
+      const eveningTime = new Date(now)
+      eveningTime.setHours(21, 0, 0, 0)
+      if (eveningTime <= now) {
+        eveningTime.setDate(eveningTime.getDate() + 1)
+      }
+      
+      // Morning announcement at 7:00 AM
+      if (morningAnnouncementEnabled) {
+        const morningTimeout = morningTime.getTime() - now.getTime()
+        
+        const timeout = setTimeout(() => {
+          if (document.visibilityState === 'visible') {
+            logEvent('Triggering morning announcement')
+            speakMorningAnnouncement()
+          }
+        }, morningTimeout)
+        
+        announcementTimeouts.current.push(timeout)
+        logEvent(`Morning announcement scheduled for ${morningTime.toLocaleString()}`)
+      }
+      
+      // Evening announcement at 9:00 PM
+      if (eveningAnnouncementEnabled) {
+        const eveningTimeout = eveningTime.getTime() - now.getTime()
+        
+        const timeout = setTimeout(() => {
+          if (document.visibilityState === 'visible') {
+            logEvent('Triggering evening announcement')
+            speakEveningAnnouncement()
+          }
+        }, eveningTimeout)
+        
+        announcementTimeouts.current.push(timeout)
+        logEvent(`Evening announcement scheduled for ${eveningTime.toLocaleString()}`)
+      }
+      
+      // Set next announcement time for UI display
+      if (morningAnnouncementEnabled && eveningAnnouncementEnabled) {
+        if (morningTime < eveningTime) {
+          setNextAnnouncementTime(morningTime)
+        } else {
+          setNextAnnouncementTime(eveningTime)
+        }
+      } else if (morningAnnouncementEnabled) {
+        setNextAnnouncementTime(morningTime)
+      } else if (eveningAnnouncementEnabled) {
+        setNextAnnouncementTime(eveningTime)
+      } else {
+        setNextAnnouncementTime(null)
+      }
+      
+      // Check for due task announcements every minute
+      const checkDueTasks = () => {
+        const dueTasks = tasks.filter(task => {
+          const taskDue = new Date(task.dueDate)
+          const timeDiff = Math.abs(taskDue.getTime() - now.getTime())
+          return timeDiff <= 30000 && !task.completed // Within 30 seconds
+        })
+        
+        dueTasks.forEach(task => {
+          logEvent(`Task due now: "${task.description}"`)
+          speak(`Attention! Task "${task.description}" is now due.`)
+        })
+      }
+      
+      const dueCheckInterval = setInterval(checkDueTasks, 30000) // Check every 30 seconds
+      
+      // Clean up on unmount
+      return () => {
+        clearInterval(dueCheckInterval)
+        announcementTimeouts.current.forEach(clearTimeout)
+      }
+    }
+
+    const cleanup = scheduleAnnouncements()
+    
+    return cleanup
+  }, [announcementsEnabled, morningAnnouncementEnabled, eveningAnnouncementEnabled, tasks, logEvent, speakMorningAnnouncement, speakEveningAnnouncement])
+
+  // Speech functions with fallback mechanisms and system volume control
+  const speak = useCallback((text: string, repeat = false) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window) || !selectedVoice) {
+      logEvent('Speech synthesis not available or no voice selected', 'warning')
+      return
+    }
+
+    try {
+      window.speechSynthesis.cancel()
+      
+      const utterance = new SpeechSynthesisUtterance(text)
+      const voice = voices.find(v => v.voiceURI === selectedVoice.voiceURI)
+      
+      if (voice) {
+        utterance.voice = voice
+      }
+      
+      utterance.rate = speechRate
+      utterance.pitch = speechPitch
+      utterance.volume = speechVolume * systemVolume // Apply system volume multiplier
+      
+      utterance.onstart = () => logEvent(`Started speaking: "${text.substring(0, 50)}..."`)
+      utterance.onend = () => {
+        logEvent('Speech completed')
+        
+        if (repeat) {
+          setTimeout(() => {
+            const repeatUtterance = new SpeechSynthesisUtterance(text)
+            if (voice) repeatUtterance.voice = voice
+            repeatUtterance.rate = speechRate
+            repeatUtterance.pitch = speechPitch
+            repeatUtterance.volume = speechVolume * systemVolume
+            window.speechSynthesis.speak(repeatUtterance)
+          }, 2000)
+        }
+      }
+      
+      utterance.onerror = (event) => {
+        logEvent(`Speech error: ${event.error}`, 'error')
+        
+        // Fallback: show visual notification
+        toast.error('Speech Error', {
+          description: `Unable to speak: "${text.substring(0, 100)}..."`
+        })
+      }
+      
+      window.speechSynthesis.speak(utterance)
+    } catch (err) {
+      logEvent(`Speech synthesis failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error')
+    }
+  }, [selectedVoice, voices, speechVolume, speechRate, speechPitch, systemVolume, logEvent])
+
+  // Enhanced announcement muting system
+  const muteAllAnnouncements = useCallback(() => {
+    window.speechSynthesis.cancel()
+    setAnnouncementsEnabled(false)
+    
+    // Clear all scheduled announcements
+    announcementTimeouts.current.forEach(clearTimeout)
+    announcementTimeouts.current = []
+    
+    toast.success('All announcements muted')
+    logEvent('All announcements muted by user')
+  }, [])
+
+  const unmuteAnnouncements = useCallback(() => {
+    setAnnouncementsEnabled(true)
+    toast.success('Announcements enabled')
+    logEvent('Announcements re-enabled by user')
+  }, [])
+
+  const toggleSystemMute = useCallback(() => {
+    const newVolume = systemVolume === 0 ? 0.8 : 0
+    setSystemVolume(newVolume)
+    
+    if (newVolume === 0) {
+      window.speechSynthesis.cancel()
+      toast.success('System audio muted')
+      logEvent('System audio muted')
+    } else {
+      toast.success('System audio unmuted')
+      logEvent('System audio unmuted')
+    }
+  }, [systemVolume])
 
   // Task operations with enhanced error handling
   const markComplete = useCallback(async (taskId: number) => {
